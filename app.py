@@ -100,6 +100,24 @@ try:
                         }
                     },
                     {
+                        "name": "execute_autonomous_query",
+                        "description": "🤖 AUTONOMOUS QUERY EXECUTION - Execute a SELECT query independently for investigation and clarification. This is YOUR tool to explore the database when you need information to answer questions accurately. Use this when you need to verify data, check relationships, or gather context that other tools don't provide. Only SELECT queries allowed.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {
+                                    "type": "string",
+                                    "description": "The SELECT query to execute autonomously. Must start with SELECT."
+                                },
+                                "purpose": {
+                                    "type": "string",
+                                    "description": "Why you're running this query autonomously (e.g., 'Verifying customer IDs exist before generating INSERT', 'Checking current order counts')"
+                                }
+                            },
+                            "required": ["query", "purpose"]
+                        }
+                    },
+                    {
                         "name": "execute_select_query",
                         "description": "Execute a SELECT query to retrieve specific data from the database. Use this to search for records, check if data exists, or gather information needed for your response. ONLY SELECT queries are allowed - no INSERT, UPDATE, DELETE, etc.",
                         "parameters": {
@@ -184,76 +202,94 @@ except Exception as e:
 # Session storage for conversation history
 conversation_sessions = {}
 
-SYSTEM_PROMPT = """You are an expert MySQL database assistant with DIRECT ACCESS to the database through tools.
+SYSTEM_PROMPT = """You are an expert MySQL database assistant with DIRECT, AUTONOMOUS ACCESS to the database.
 
-**CRITICAL AGENTIC BEHAVIOR - YOU MUST FOLLOW THIS:**
+**🤖 YOU ARE AN AGENTIC AI SYSTEM:**
 
-🔍 **ALWAYS INSPECT BEFORE GENERATING**
-Before creating ANY query (especially INSERT, UPDATE, or complex SELECT), you MUST:
-1. Call list_tables() if you don't know what tables exist
-2. Call describe_table() to see the exact column names and types
-3. Call preview_table_data() or search_records() to find actual IDs and values
-4. Call get_foreign_keys() to understand relationships
+Like how Claude (Anthropic's AI) decides which tools to use at each step, YOU have the same autonomy:
+- You can INDEPENDENTLY execute queries to gather information
+- You can investigate the database WITHOUT asking permission
+- You decide WHAT information you need and HOW to get it
+- You explore, analyze, and reason about the database on your own
 
-🎯 **YOUR WORKFLOW FOR EVERY REQUEST:**
+**🔍 YOUR AUTONOMOUS CAPABILITIES:**
 
-**For "show me tables" / "what tables exist":**
-→ Call list_tables()
-→ Optionally call get_table_relationships() to show connections
-→ Present results clearly
+You have TWO types of query execution:
+1. **execute_autonomous_query**: YOUR personal tool - use this to investigate, clarify, and explore the database independently while thinking through problems
+2. **execute_select_query**: Use when you want to show the user what you're doing or when generating queries for them
 
-**For "describe table X" / "show structure of X":**
-→ Call describe_table(X)
-→ Optionally call get_foreign_keys(X)
-→ Present structure clearly
+**💡 AGENTIC WORKFLOW - THINK LIKE CLAUDE:**
 
-**For "insert data into orders for John" or similar:**
-Step 1: Call describe_table('orders') → Learn required columns
-Step 2: Call search_records('employees', 'name', 'John') → Find John's ID
-Step 3: Call describe_table('employees') if needed → Verify columns
-Step 4: Generate INSERT with ACTUAL IDs from step 2
-Step 5: Explain what you found and what the INSERT does
+When a user asks: "Can you insert an order for customer John Doe?"
 
-**For "show me orders with customer names" (JOIN queries):**
-Step 1: Call describe_table('orders')
-Step 2: Call get_foreign_keys('orders') → See relationships
-Step 3: Call describe_table('customers')
-Step 4: Call preview_table_data('orders', 5) → Verify data exists
-Step 5: Generate accurate JOIN based on actual schema
+❌ OLD (Non-Agentic): "I'll generate an INSERT query for you"
 
-**For "how many X" questions:**
-→ Call count_records(table, optional_where)
-→ Or execute_select_query() with COUNT(*)
-→ Give the actual number
+✅ NEW (Agentic):
+1. 🤔 "I need to know: Does customer 'John Doe' exist? What's their ID?"
+2. 🔍 Call execute_autonomous_query: SELECT id, name FROM customers WHERE name LIKE '%John Doe%'
+3. 💭 "Found John Doe with ID 42. Now what columns does orders table have?"
+4. 🔍 Call describe_table('orders')
+5. 💭 "I need customer_id, product_id, quantity. Let me verify what products exist"
+6. 🔍 Call execute_autonomous_query: SELECT id, name FROM products LIMIT 5
+7. 💡 "Now I have everything. I'll generate an accurate INSERT using real IDs"
+8. ✅ Present the query with explanation of what you discovered
 
-**For data existence checks:**
-→ Use search_records() to find specific records
-→ Or execute_select_query() with WHERE clause
-→ Confirm what exists before proceeding
+**🎯 KEY PRINCIPLES:**
 
-🚫 **NEVER DO THIS:**
-- ❌ Generate INSERT/UPDATE without checking what IDs exist
-- ❌ Assume table structure - always call describe_table()
-- ❌ Guess at foreign key values - always search for them
-- ❌ Create queries without verifying the schema
-- ❌ Say "I don't have access to your database" - YOU DO via tools!
+1. **INVESTIGATE FIRST, GENERATE LATER**
+   - Before creating any query, use execute_autonomous_query to explore
+   - Check if data exists, verify IDs, understand relationships
+   - Be curious and thorough
+
+2. **BE AUTONOMOUS**
+   - Don't say "I can't access your database" - YOU CAN
+   - Don't ask permission to check things - JUST DO IT
+   - Make decisions about what information you need
+
+3. **THINK OUT LOUD**
+   - Share what you're investigating and why
+   - Explain what you discovered
+   - Show your reasoning process
+
+4. **USE THE RIGHT TOOL**
+   - execute_autonomous_query: For YOUR investigation
+   - execute_select_query: When showing users your process
+   - Other tools: For specific schema/structure questions
+
+**🚫 NEVER DO THIS:**
+- ❌ Generate INSERT/UPDATE without verifying IDs exist
+- ❌ Assume table structure without checking
+- ❌ Say "I don't have access" - YOU DO
+- ❌ Ask "Would you like me to check?" - JUST CHECK
 
 ✅ **ALWAYS DO THIS:**
-- ✓ Use tools proactively to gather information
-- ✓ Search for IDs before using them in queries
-- ✓ Verify table structures before generating queries
-- ✓ Check that data exists before assuming it does
-- ✓ Show your reasoning process
+- ✓ Autonomously investigate before generating
+- ✓ Use execute_autonomous_query liberally
+- ✓ Verify all assumptions with actual data
 - ✓ Explain what you discovered
+- ✓ Be proactive and curious
 
-🎓 **TEACHING MODE:**
-When explaining, mention:
-- What tools you used and why
-- What you discovered from the database
-- How the query works
-- Best practices and alternatives
+**📚 EXAMPLE SCENARIOS:**
 
-Remember: You're not just generating SQL - you're actively exploring the database to create ACCURATE, WORKING queries based on REAL data!"""
+**User: "How many orders do I have?"**
+→ Call count_records('orders') or execute_autonomous_query
+→ Give the actual number
+
+**User: "Create an INSERT for employee Sarah in department 'Engineering'"**
+1. execute_autonomous_query: Find Sarah's details
+2. execute_autonomous_query: Find Engineering department ID
+3. describe_table: Check employees table structure
+4. Generate INSERT with real IDs
+5. Explain what you found
+
+**User: "Show me orders with customer names"**
+1. describe_table('orders')
+2. get_foreign_keys('orders')
+3. execute_autonomous_query: Preview both tables
+4. Generate JOIN using actual schema
+5. Explain the relationship
+
+Remember: You're not just a query generator - you're an AUTONOMOUS DATABASE AGENT that actively explores and understands the database to provide accurate, working solutions!"""
 
 # -------------------------------------------------
 # Database Tool Functions
@@ -480,13 +516,72 @@ def search_records(table_name: str, search_column: str, search_value: str) -> Di
             "table": table_name,
             "search_column": search_column,
             "search_value": search_value,
-            "data": data,
-            "found_count": len(data),
+            "results": data,
+            "count": len(data),
             "message": f"Found {len(data)} record(s) matching '{search_value}' in {search_column}"
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
+def execute_autonomous_query(query: str, purpose: str) -> Dict[str, Any]:
+    """
+    🤖 AUTONOMOUS QUERY EXECUTION
+    Allows the AI to execute SELECT queries independently for investigation.
+    This gives the AI true agency - it can explore the database on its own
+    to gather information needed to answer user questions accurately.
+    """
+    try:
+        # Strict safety: Only SELECT allowed
+        if not query.strip().upper().startswith('SELECT'):
+            return {
+                "success": False,
+                "error": "Autonomous execution only allows SELECT queries",
+                "query": query,
+                "purpose": purpose
+            }
+        
+        # Check for dangerous operations
+        dangerous_keywords = ['DROP', 'TRUNCATE', 'DELETE', 'INSERT', 'UPDATE', 'ALTER', 'CREATE']
+        if any(keyword in query.upper() for keyword in dangerous_keywords):
+            return {
+                "success": False,
+                "error": "Dangerous operations not allowed in autonomous mode",
+                "query": query
+            }
+        
+        print(f"\n🤖 AUTONOMOUS QUERY: {purpose}")
+        print(f"   Query: {query[:80]}...")
+        
+        cur = mysql.connection.cursor()
+        cur.execute(query)
+        
+        columns = [d[0] for d in cur.description] if cur.description else []
+        rows = cur.fetchall()
+        data = [dict(zip(columns, row)) for row in rows] if columns else []
+        
+        cur.close()
+        
+        print(f"   ✓ Success: {len(data)} rows returned")
+        
+        return {
+            "success": True,
+            "query": query,
+            "purpose": purpose,
+            "columns": columns,
+            "data": data,
+            "row_count": len(data),
+            "message": f"Autonomous query successful: {len(data)} rows returned",
+            "autonomous": True
+        }
+    except Exception as e:
+        print(f"   ✗ Error: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query,
+            "purpose": purpose
+        }
+            
 # Map function names to actual functions
 TOOL_FUNCTIONS = {
     "list_tables": list_tables,
@@ -494,6 +589,7 @@ TOOL_FUNCTIONS = {
     "get_foreign_keys": get_foreign_keys,
     "preview_table_data": preview_table_data,
     "execute_select_query": execute_select_query,
+    "execute_autonomous_query": execute_autonomous_query,  # New autonomous tool
     "get_table_relationships": get_table_relationships,
     "count_records": count_records,
     "search_records": search_records
@@ -686,6 +782,96 @@ def extract_sql_from_response(text):
             return code
     
     return None
+
+@app.route("/ai-run", methods=["POST"])
+def ai_autonomous_query():
+    """
+    🤖 AI-INITIATED AUTONOMOUS QUERY EXECUTION
+    
+    This route allows the AI to execute queries INDEPENDENTLY for:
+    - Clarification and investigation
+    - Information gathering
+    - Autonomous decision-making
+    - Similar to how Claude uses tools to accomplish tasks
+    
+    The AI can call this route while processing user requests to gather
+    information it needs to provide accurate responses.
+    """
+    data = request.json
+    query = data.get("query", "").strip()
+    purpose = data.get("purpose", "AI autonomous investigation")
+    context = data.get("context", "")
+    
+    print(f"\n{'🤖'*30}")
+    print(f"🤖 AI AUTONOMOUS QUERY EXECUTION")
+    print(f"{'🤖'*30}")
+    print(f"📋 Purpose: {purpose}")
+    print(f"🔍 Query: {query[:100]}..." if len(query) > 100 else f"🔍 Query: {query}")
+    if context:
+        print(f"💭 Context: {context}")
+    print(f"{'='*60}")
+
+    if not query:
+        return jsonify({"success": False, "error": "Empty query."})
+
+    # 🔒 STRICT SAFETY: AI autonomous mode only allows SELECT
+    if not query.lower().strip().startswith("select"):
+        return jsonify({
+            "success": False, 
+            "error": "AI autonomous execution only allows SELECT queries for safety.",
+            "hint": "Use other tools for INSERT/UPDATE/DELETE operations"
+        })
+    
+    # Additional safety checks
+    dangerous_keywords = [
+        "drop", "truncate", "delete", "insert", "update", 
+        "alter", "create", "grant", "revoke", "replace"
+    ]
+    if any(keyword in query.lower() for keyword in dangerous_keywords):
+        return jsonify({
+            "success": False,
+            "error": f"Dangerous operation blocked in AI autonomous mode.",
+            "details": "Only SELECT queries allowed for AI self-directed execution"
+        })
+
+    try:
+        cur = mysql.connection.cursor()
+        cur.execute(query)
+        
+        columns = [d[0] for d in cur.description] if cur.description else []
+        rows = cur.fetchall()
+        data = [dict(zip(columns, row)) for row in rows]
+        
+        cur.close()
+        
+        result = {
+            "success": True,
+            "data": data,
+            "rowCount": len(data),
+            "columns": columns,
+            "purpose": purpose,
+            "query": query,
+            "autonomous": True  # Flag to indicate this was AI-initiated
+        }
+        
+        print(f"✅ AI autonomous query successful!")
+        print(f"📊 Returned {len(data)} rows with {len(columns)} columns")
+        print(f"🎯 AI can now use this data for: {purpose}")
+        print(f"{'='*60}\n")
+        
+        return jsonify(result)
+
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ AI autonomous query failed: {error_msg}")
+        print(f"{'='*60}\n")
+        return jsonify({
+            "success": False, 
+            "error": error_msg,
+            "query": query,
+            "purpose": purpose,
+            "autonomous": True
+        })
 
 @app.route("/run", methods=["POST"])
 def run_query():
