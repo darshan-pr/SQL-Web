@@ -6,6 +6,7 @@ import google.generativeai as genai
 import re
 import json
 from typing import List, Dict, Any
+import traceback
 
 # -------------------------------------------------
 # Load environment variables
@@ -32,19 +33,20 @@ app.config["MYSQL_DB"] = os.getenv("MYSQL_DB")
 mysql = MySQL(app)
 
 # -------------------------------------------------
-# Gemini Configuration with Function Calling
+# Gemini Configuration with Extended Thinking
 # -------------------------------------------------
 try:
     genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    # Use Gemini 2.5 Pro for better reasoning
+    
+    # Use Gemini 2.0 Flash for fast thinking with function calling
     model = genai.GenerativeModel(
-        "gemini-2.0-flash-exp",
+        "gemini-2.5-pro",  # Latest thinking model
         tools=[
             {
                 "function_declarations": [
                     {
                         "name": "list_tables",
-                        "description": "Get a list of all tables in the current database",
+                        "description": "Get a list of all tables in the current database. Use this to discover what tables exist.",
                         "parameters": {
                             "type": "object",
                             "properties": {},
@@ -52,7 +54,7 @@ try:
                     },
                     {
                         "name": "describe_table",
-                        "description": "Get the structure/schema of a specific table including columns, data types, keys, and constraints",
+                        "description": "Get the complete structure/schema of a specific table including columns, data types, keys, constraints, and indexes. Essential for understanding table structure before generating queries.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -66,7 +68,7 @@ try:
                     },
                     {
                         "name": "get_foreign_keys",
-                        "description": "Get all foreign key relationships for a specific table",
+                        "description": "Get all foreign key relationships for a specific table. Use this to understand how tables are related.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -80,7 +82,7 @@ try:
                     },
                     {
                         "name": "preview_table_data",
-                        "description": "Get a preview of data from a table (up to 10 rows) to understand what data exists",
+                        "description": "Get a preview of actual data from a table (up to specified limit). Use this to see what data exists, understand data formats, and find actual IDs/values.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -98,22 +100,26 @@ try:
                         }
                     },
                     {
-                        "name": "execute_safe_query",
-                        "description": "Execute a safe SELECT query to gather information from the database. Only SELECT queries are allowed.",
+                        "name": "execute_select_query",
+                        "description": "Execute a SELECT query to retrieve specific data from the database. Use this to search for records, check if data exists, or gather information needed for your response. ONLY SELECT queries are allowed - no INSERT, UPDATE, DELETE, etc.",
                         "parameters": {
                             "type": "object",
                             "properties": {
                                 "query": {
                                     "type": "string",
-                                    "description": "The SELECT query to execute"
+                                    "description": "The SELECT query to execute. Must start with SELECT."
+                                },
+                                "purpose": {
+                                    "type": "string",
+                                    "description": "Brief explanation of why you're running this query"
                                 }
                             },
-                            "required": ["query"]
+                            "required": ["query", "purpose"]
                         }
                     },
                     {
                         "name": "get_table_relationships",
-                        "description": "Get all relationship information between tables in the database",
+                        "description": "Get all foreign key relationships in the entire database. Use this to understand the complete database schema and how all tables connect.",
                         "parameters": {
                             "type": "object",
                             "properties": {},
@@ -121,7 +127,7 @@ try:
                     },
                     {
                         "name": "count_records",
-                        "description": "Get the count of records in a table, optionally with a WHERE condition",
+                        "description": "Get the count of records in a table, optionally with a WHERE condition. Useful for checking data volume and answering 'how many' questions.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -131,60 +137,123 @@ try:
                                 },
                                 "where_clause": {
                                     "type": "string",
-                                    "description": "Optional WHERE clause (without the WHERE keyword)",
+                                    "description": "Optional WHERE clause (without the WHERE keyword). Example: 'status = \"active\"'",
                                     "default": ""
                                 }
                             },
                             "required": ["table_name"]
                         }
+                    },
+                    {
+                        "name": "search_records",
+                        "description": "Search for specific records in a table by name or other text fields. Returns matching records with their IDs. Very useful for finding the ID of a specific person, product, etc.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "table_name": {
+                                    "type": "string",
+                                    "description": "The name of the table to search in"
+                                },
+                                "search_column": {
+                                    "type": "string",
+                                    "description": "The column name to search in (e.g., 'name', 'email', 'title')"
+                                },
+                                "search_value": {
+                                    "type": "string",
+                                    "description": "The value to search for (will use LIKE %value%)"
+                                }
+                            },
+                            "required": ["table_name", "search_column", "search_value"]
+                        }
                     }
                 ]
             }
-        ]
+        ],
+        generation_config={
+            "temperature": 1,
+            "top_p": 0.95,
+            "top_k": 40,
+            "max_output_tokens": 8192,
+        }
     )
+    print("✓ Gemini 2.0 Flash Thinking configured successfully")
 except Exception as e:
-    print(f"Gemini configuration error: {e}")
+    print(f"✗ Gemini configuration error: {e}")
     model = None
 
 # Session storage for conversation history
 conversation_sessions = {}
 
-SYSTEM_PROMPT = """You are an expert MySQL database assistant with the ability to interact with the database directly.
+SYSTEM_PROMPT = """You are an expert MySQL database assistant with DIRECT ACCESS to the database through tools.
 
-**IMPORTANT AGENTIC BEHAVIOR:**
-You have access to tools that let you inspect and query the database. ALWAYS use these tools to understand the database before generating queries for the user.
+**CRITICAL AGENTIC BEHAVIOR - YOU MUST FOLLOW THIS:**
 
-**Your workflow should be:**
-1. **Understand the request** - What is the user trying to do?
-2. **Gather context** - Use tools to discover:
-   - What tables exist (list_tables)
-   - Table structures (describe_table)
-   - Relationships between tables (get_foreign_keys, get_table_relationships)
-   - What data actually exists (preview_table_data, execute_safe_query)
-3. **Plan your approach** - Think through the steps needed
-4. **Generate accurate queries** - Based on ACTUAL schema and data
-5. **Explain clearly** - Help the user understand what you're doing
-6. **Remember u cannot drop or delete anything without explicit permission**
+🔍 **ALWAYS INSPECT BEFORE GENERATING**
+Before creating ANY query (especially INSERT, UPDATE, or complex SELECT), you MUST:
+1. Call list_tables() if you don't know what tables exist
+2. Call describe_table() to see the exact column names and types
+3. Call preview_table_data() or search_records() to find actual IDs and values
+4. Call get_foreign_keys() to understand relationships
 
-**When generating INSERT/UPDATE queries:**
-- ALWAYS check what IDs/values exist first using preview_table_data or execute_safe_query
-- Verify foreign key relationships exist
-- Use actual data from the database in examples
+🎯 **YOUR WORKFLOW FOR EVERY REQUEST:**
 
-**For complex queries (JOINs, subqueries):**
-- First inspect all involved tables
-- Check foreign key relationships
-- Verify data exists before creating the query
-- Explain your reasoning
+**For "show me tables" / "what tables exist":**
+→ Call list_tables()
+→ Optionally call get_table_relationships() to show connections
+→ Present results clearly
 
-**Tool usage examples:**
-- User asks to create an order → Check employees table first to see which employee IDs exist
-- User asks for a JOIN → Inspect both tables and their relationships first
-- User asks about data → Query the database directly to give accurate answers
+**For "describe table X" / "show structure of X":**
+→ Call describe_table(X)
+→ Optionally call get_foreign_keys(X)
+→ Present structure clearly
 
-Be proactive in using tools. Don't guess about schema or data - CHECK IT FIRST.
+**For "insert data into orders for John" or similar:**
+Step 1: Call describe_table('orders') → Learn required columns
+Step 2: Call search_records('employees', 'name', 'John') → Find John's ID
+Step 3: Call describe_table('employees') if needed → Verify columns
+Step 4: Generate INSERT with ACTUAL IDs from step 2
+Step 5: Explain what you found and what the INSERT does
 
-Remember: You're both a helpful assistant AND a patient teacher. Show your thinking process so users learn how to approach database problems."""
+**For "show me orders with customer names" (JOIN queries):**
+Step 1: Call describe_table('orders')
+Step 2: Call get_foreign_keys('orders') → See relationships
+Step 3: Call describe_table('customers')
+Step 4: Call preview_table_data('orders', 5) → Verify data exists
+Step 5: Generate accurate JOIN based on actual schema
+
+**For "how many X" questions:**
+→ Call count_records(table, optional_where)
+→ Or execute_select_query() with COUNT(*)
+→ Give the actual number
+
+**For data existence checks:**
+→ Use search_records() to find specific records
+→ Or execute_select_query() with WHERE clause
+→ Confirm what exists before proceeding
+
+🚫 **NEVER DO THIS:**
+- ❌ Generate INSERT/UPDATE without checking what IDs exist
+- ❌ Assume table structure - always call describe_table()
+- ❌ Guess at foreign key values - always search for them
+- ❌ Create queries without verifying the schema
+- ❌ Say "I don't have access to your database" - YOU DO via tools!
+
+✅ **ALWAYS DO THIS:**
+- ✓ Use tools proactively to gather information
+- ✓ Search for IDs before using them in queries
+- ✓ Verify table structures before generating queries
+- ✓ Check that data exists before assuming it does
+- ✓ Show your reasoning process
+- ✓ Explain what you discovered
+
+🎓 **TEACHING MODE:**
+When explaining, mention:
+- What tools you used and why
+- What you discovered from the database
+- How the query works
+- Best practices and alternatives
+
+Remember: You're not just generating SQL - you're actively exploring the database to create ACCURATE, WORKING queries based on REAL data!"""
 
 # -------------------------------------------------
 # Database Tool Functions
@@ -200,7 +269,8 @@ def list_tables() -> Dict[str, Any]:
         return {
             "success": True,
             "tables": tables,
-            "count": len(tables)
+            "count": len(tables),
+            "message": f"Found {len(tables)} tables in database"
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -228,7 +298,9 @@ def describe_table(table_name: str) -> Dict[str, Any]:
         return {
             "success": True,
             "table": table_name,
-            "columns": schema
+            "columns": schema,
+            "column_count": len(schema),
+            "message": f"Table '{table_name}' has {len(schema)} columns"
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -264,7 +336,9 @@ def get_foreign_keys(table_name: str) -> Dict[str, Any]:
         return {
             "success": True,
             "table": table_name,
-            "foreign_keys": relationships
+            "foreign_keys": relationships,
+            "count": len(relationships),
+            "message": f"Found {len(relationships)} foreign key(s) in '{table_name}'"
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -272,7 +346,7 @@ def get_foreign_keys(table_name: str) -> Dict[str, Any]:
 def preview_table_data(table_name: str, limit: int = 10) -> Dict[str, Any]:
     """Get preview of table data"""
     try:
-        limit = min(limit, 50)  # Cap at 50 rows
+        limit = min(max(1, limit), 50)  # Between 1 and 50
         cur = mysql.connection.cursor()
         cur.execute(f"SELECT * FROM `{table_name}` LIMIT {limit}")
         
@@ -284,37 +358,48 @@ def preview_table_data(table_name: str, limit: int = 10) -> Dict[str, Any]:
         return {
             "success": True,
             "table": table_name,
+            "columns": columns,
             "data": data,
-            "row_count": len(data)
+            "row_count": len(data),
+            "message": f"Retrieved {len(data)} rows from '{table_name}'"
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def execute_safe_query(query: str) -> Dict[str, Any]:
-    """Execute only SELECT queries"""
+def execute_select_query(query: str, purpose: str = "") -> Dict[str, Any]:
+    """Execute only SELECT queries - AI can run queries autonomously"""
     try:
-        # Safety check - only allow SELECT
-        if not query.strip().upper().startswith("SELECT"):
+        # Safety check - only allow SELECT, SHOW, DESCRIBE
+        query_upper = query.strip().upper()
+        if not query_upper.startswith("SELECT") and not query_upper.startswith("SHOW") and not query_upper.startswith("DESCRIBE"):
             return {
                 "success": False,
-                "error": "Only SELECT queries are allowed with this tool"
+                "error": "Only SELECT, SHOW, and DESCRIBE queries are allowed with this tool"
             }
         
         cur = mysql.connection.cursor()
         cur.execute(query)
         
-        columns = [d[0] for d in cur.description]
+        columns = [d[0] for d in cur.description] if cur.description else []
         rows = cur.fetchall()
-        data = [dict(zip(columns, row)) for row in rows]
+        data = [dict(zip(columns, row)) for row in rows] if columns else []
         
         cur.close()
         return {
             "success": True,
+            "query": query,
+            "purpose": purpose,
+            "columns": columns,
             "data": data,
-            "row_count": len(data)
+            "row_count": len(data),
+            "message": f"Query executed successfully, returned {len(data)} rows"
         }
     except Exception as e:
-        return {"success": False, "error": str(e)}
+        return {
+            "success": False,
+            "error": str(e),
+            "query": query
+        }
 
 def get_table_relationships() -> Dict[str, Any]:
     """Get all foreign key relationships in database"""
@@ -349,7 +434,8 @@ def get_table_relationships() -> Dict[str, Any]:
         return {
             "success": True,
             "relationships": formatted_relationships,
-            "count": len(formatted_relationships)
+            "count": len(formatted_relationships),
+            "message": f"Found {len(formatted_relationships)} foreign key relationship(s)"
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -370,7 +456,33 @@ def count_records(table_name: str, where_clause: str = "") -> Dict[str, Any]:
             "success": True,
             "table": table_name,
             "count": count,
-            "where": where_clause if where_clause else "none"
+            "where": where_clause if where_clause else "none",
+            "message": f"Found {count} record(s) in '{table_name}'" + (f" where {where_clause}" if where_clause else "")
+        }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def search_records(table_name: str, search_column: str, search_value: str) -> Dict[str, Any]:
+    """Search for records by name or other text field"""
+    try:
+        cur = mysql.connection.cursor()
+        # Use parameterized query for safety
+        query = f"SELECT * FROM `{table_name}` WHERE `{search_column}` LIKE %s LIMIT 10"
+        cur.execute(query, (f"%{search_value}%",))
+        
+        columns = [d[0] for d in cur.description]
+        rows = cur.fetchall()
+        data = [dict(zip(columns, row)) for row in rows]
+        
+        cur.close()
+        return {
+            "success": True,
+            "table": table_name,
+            "search_column": search_column,
+            "search_value": search_value,
+            "data": data,
+            "found_count": len(data),
+            "message": f"Found {len(data)} record(s) matching '{search_value}' in {search_column}"
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -381,9 +493,10 @@ TOOL_FUNCTIONS = {
     "describe_table": describe_table,
     "get_foreign_keys": get_foreign_keys,
     "preview_table_data": preview_table_data,
-    "execute_safe_query": execute_safe_query,
+    "execute_select_query": execute_select_query,
     "get_table_relationships": get_table_relationships,
-    "count_records": count_records
+    "count_records": count_records,
+    "search_records": search_records
 }
 
 # -------------------------------------------------
@@ -429,7 +542,7 @@ def ai_chat():
             })
             chat_history.append({
                 "role": "model",
-                "parts": ["I understand. I'm an expert MySQL assistant with database inspection capabilities. I'll use tools to understand your database before generating queries, ensuring accuracy based on actual schema and data. How can I help you today?"]
+                "parts": ["Understood! I'm your expert MySQL assistant with direct database access through tools. I'll ALWAYS inspect your database before generating queries to ensure accuracy. I can see your tables, check their structures, search for IDs, and verify data exists. Let's work together! What would you like to do?"]
             })
         
         # Add previous conversation
@@ -447,47 +560,76 @@ def ai_chat():
             "parts": [current_message]
         })
         
+        print(f"\n{'='*60}")
+        print(f"🤖 AI Agent Processing: {current_message[:100]}...")
+        print(f"{'='*60}")
+        
         # Start chat with history
         chat = model.start_chat(history=chat_history[:-1])
         
         # Send message and handle function calling
         response = chat.send_message(current_message)
         
-        # Track tool calls for debugging
+        # Track tool calls for debugging and UI visualization
         tool_calls = []
         iterations = 0
-        max_iterations = 10  # Prevent infinite loops
+        max_iterations = 15  # Allow more iterations for complex reasoning
         
         # Handle function calling loop
-        while response.candidates[0].content.parts[0].function_call and iterations < max_iterations:
-            function_call = response.candidates[0].content.parts[0].function_call
-            function_name = function_call.name
-            function_args = dict(function_call.args)
+        while iterations < max_iterations:
+            # Check if there are function calls in the response
+            parts = response.candidates[0].content.parts
+            function_calls_in_response = [p for p in parts if hasattr(p, 'function_call') and p.function_call]
             
-            iterations += 1
-            
-            # Execute the function
-            if function_name in TOOL_FUNCTIONS:
-                result = TOOL_FUNCTIONS[function_name](**function_args)
-                tool_calls.append({
-                    "function": function_name,
-                    "args": function_args,
-                    "result": result
-                })
+            if not function_calls_in_response:
+                break
                 
-                # Send function response back to model
-                response = chat.send_message(
-                    genai.protos.Content(
-                        parts=[genai.protos.Part(
+            iterations += 1
+            print(f"\n🔧 Iteration {iterations}: Processing {len(function_calls_in_response)} tool call(s)")
+            
+            # Process all function calls in this response
+            function_responses = []
+            
+            for part in function_calls_in_response:
+                function_call = part.function_call
+                function_name = function_call.name
+                function_args = dict(function_call.args)
+                
+                print(f"   └─ Calling: {function_name}({json.dumps(function_args, default=str)})")
+                
+                # Execute the function
+                if function_name in TOOL_FUNCTIONS:
+                    result = TOOL_FUNCTIONS[function_name](**function_args)
+                    tool_calls.append({
+                        "function": function_name,
+                        "args": function_args,
+                        "result": result,
+                        "iteration": iterations
+                    })
+                    
+                    print(f"   └─ Result: {result.get('message', result.get('success', 'completed'))}")
+                    
+                    # Create function response
+                    function_responses.append(
+                        genai.protos.Part(
                             function_response=genai.protos.FunctionResponse(
                                 name=function_name,
                                 response=result
                             )
-                        )]
+                        )
                     )
+                else:
+                    print(f"   └─ ⚠️  Unknown function: {function_name}")
+            
+            # Send all function responses back to model
+            if function_responses:
+                response = chat.send_message(
+                    genai.protos.Content(parts=function_responses)
                 )
-            else:
-                break
+        
+        print(f"\n✓ Agent completed after {iterations} iteration(s)")
+        print(f"✓ Total tool calls: {len(tool_calls)}")
+        print(f"{'='*60}\n")
         
         # Get final response text
         response_text = response.text
@@ -514,12 +656,13 @@ def ai_chat():
             "success": True,
             "response": response_text,
             "sql": sql_query,
-            "tool_calls": tool_calls,  # For debugging
+            "tool_calls": tool_calls,
+            "iterations": iterations,
             "history": conversation_sessions[session_id]
         })
     
     except Exception as e:
-        import traceback
+        print(f"\n❌ Error in AI chat:")
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
@@ -546,6 +689,7 @@ def extract_sql_from_response(text):
 
 @app.route("/run", methods=["POST"])
 def run_query():
+    """User-initiated query execution (not AI)"""
     query = request.json.get("query", "").strip()
 
     if not query:
@@ -581,4 +725,11 @@ def run_query():
 # App Entry
 # -------------------------------------------------
 if __name__ == "__main__":
+    print("\n" + "="*60)
+    print("🚀 SQL Terminal Pro - Agentic AI Edition")
+    print("="*60)
+    print("✓ Flask server starting...")
+    print("✓ Agentic AI with autonomous query execution enabled")
+    print("✓ Gemini 2.0 Flash Thinking mode active")
+    print("="*60 + "\n")
     app.run(host="0.0.0.0", port=5000, debug=True)
