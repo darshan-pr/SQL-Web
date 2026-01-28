@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+<title>SQL Terminal</title>
+
+<link rel="stylesheet" href="/static/css/base.css">
+<link rel="stylesheet" href="/static/css/terminal.css">
+
+<script src="https://unpkg.com/framer-motion/dist/framer-motion.umd.js"></script>
+</head>
+
+<body>
+<div class="container" id="container">
+
+<header>
+  💻 SQL Web Terminal <span>+ Gemini 🤖</span>
+</header>
+
+<div class="terminal">
+  <textarea id="query" placeholder="Ask Gemini or write SQL..."></textarea>
+
+  <div class="actions">
+    <button onclick="runQuery()">Run SQL</button>
+    <button onclick="askAI()">Ask Gemini</button>
+  </div>
+</div>
+
+<div id="output" class="output"></div>
+
+</div>
+
+<script src="/static/js/terminal.js"></script>
+</body>
+</html>

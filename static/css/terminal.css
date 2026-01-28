@@ -1,0 +1,50 @@
+.container {
+  max-width: 1100px;
+  margin: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+header {
+  font-size: clamp(1rem, 4vw, 1.2rem);
+  opacity: 0.85;
+}
+
+.terminal, .output {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+textarea {
+  width: 100%;
+  min-height: 120px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  resize: vertical;
+  font-family: var(--mono);
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.output {
+  min-height: 100px;
+  overflow-x: auto;
+}
+
+/* Mobile */
+@media (max-width: 600px) {
+  textarea {
+    min-height: 90px;
+  }
+}
