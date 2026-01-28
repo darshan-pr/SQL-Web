@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SQL Terminal - Database Console</title>
+  <title>SQL Terminal - AI-Powered Database Console</title>
   
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/terminal.css">
@@ -31,74 +31,135 @@
 
     <div class="main-grid">
       
-      <!-- SQL Input Panel -->
-      <div class="terminal-panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polyline points="16 18 22 12 16 6"></polyline>
-              <polyline points="8 6 2 12 8 18"></polyline>
-            </svg>
-            Query Editor
-          </div>
-        </div>
-
-        <textarea id="query" placeholder="-- Write SQL query or ask AI in natural language
-SELECT * FROM users WHERE status = 'active';"></textarea>
-
-        <div class="actions">
-          <button onclick="runQuery()">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <polygon points="5 3 19 12 5 21 5 3"></polygon>
-            </svg>
-            Execute Query
-          </button>
-          <button onclick="askAI()" class="secondary">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
-              <line x1="12" y1="22.08" x2="12" y2="12"/>
-            </svg>
-            Ask AI
-          </button>
-        </div>
-      </div>
-
-      <!-- Results Panel -->
-      <div class="output-panel">
-        <div class="panel-header">
-          <div class="panel-title">
-            <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="3" width="18" height="18" rx="2"/>
-              <line x1="3" y1="9" x2="21" y2="9"/>
-              <line x1="9" y1="21" x2="9" y2="9"/>
-            </svg>
-            Query Results
-          </div>
-        </div>
+      <!-- Left Side: Query Editor and Results -->
+      <div class="left-section">
         
-        <div id="output" class="output-content">
-          <div class="output-empty">Run a query to see results here</div>
+        <!-- SQL Input Panel -->
+        <div class="terminal-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="16 18 22 12 16 6"></polyline>
+                <polyline points="8 6 2 12 8 18"></polyline>
+              </svg>
+              Query Editor
+            </div>
+            <div class="header-actions">
+              <button onclick="checkSyntax()" class="btn-check">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="20 6 9 17 4 12"/>
+                </svg>
+                AI Check & Fix
+              </button>
+              <button onclick="runQuery()" class="btn-primary">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+                Execute Query
+              </button>
+            </div>
+          </div>
+
+          <textarea id="query" placeholder="-- Write SQL query or ask AI to generate one
+SELECT * FROM users WHERE status = 'active' LIMIT 10;"></textarea>
+        </div>
+
+        <!-- Results Panel -->
+        <div class="output-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <line x1="3" y1="9" x2="21" y2="9"/>
+                <line x1="9" y1="21" x2="9" y2="9"/>
+              </svg>
+              Query Results
+            </div>
+          </div>
+          
+          <div id="output" class="output-content">
+            <div class="output-empty">
+              <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                <line x1="3" y1="9" x2="21" y2="9"/>
+                <line x1="9" y1="21" x2="9" y2="9"/>
+              </svg>
+              <p>Execute a query to see results here</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Side: Conversational AI Assistant -->
+      <div class="chat-section">
+        <div class="chat-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+              AI Assistant
+            </div>
+            <div class="header-actions">
+              <button onclick="clearChat()" class="btn-clear">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          
+          <div id="chatHistory" class="chat-container">
+            <div class="welcome-message">
+              <div class="welcome-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  <circle cx="12" cy="11" r="1"/>
+                  <circle cx="8" cy="11" r="1"/>
+                  <circle cx="16" cy="11" r="1"/>
+                </svg>
+              </div>
+              <h3>Welcome! I'm your SQL Assistant</h3>
+              <p>I can help you write queries, optimize database operations, and learn SQL concepts. I remember our conversation, so feel free to ask follow-up questions!</p>
+              <div class="quick-actions">
+                <button onclick="sendQuickMessage('Create a users table with id, name, email, and created_at fields')" class="quick-btn">
+                  <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                  Create Table
+                </button>
+                <button onclick="sendQuickMessage('Show me all tables in the database')" class="quick-btn">
+                  <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+                  </svg>
+                  List Tables
+                </button>
+                <button onclick="sendQuickMessage('Help me write a JOIN query between users and orders tables')" class="quick-btn">
+                  <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <circle cx="6" cy="12" r="3"/>
+                    <circle cx="18" cy="12" r="3"/>
+                  </svg>
+                  JOIN Query
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="chat-input-container">
+            <textarea id="chatInput" placeholder="Ask me anything about SQL, database design, or query optimization..." rows="1"></textarea>
+            <button onclick="sendChatMessage()" class="btn-send">
+              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"/>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
-    </div>
-
-    <!-- Chat History Panel (Hidden by default, shown when AI is used) -->
-    <div id="chatPanel" class="terminal-panel" style="display: none;">
-      <div class="panel-header">
-        <div class="panel-title">
-          <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-          </svg>
-          AI Conversation
-        </div>
-        <button onclick="clearChat()" class="secondary" style="padding: 6px 12px; font-size: 0.85rem;">
-          Clear
-        </button>
-      </div>
-      
-      <div id="chatHistory" class="chat-container"></div>
     </div>
 
   </div>

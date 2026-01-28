@@ -59,9 +59,9 @@ body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-display);
-  min-height: 100vh;
+  height: 100vh;
   line-height: 1.6;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 /* Custom Scrollbar */
