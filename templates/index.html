@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SQL Web Terminal</title>
+
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --accent: #2ea043;
+      --error: #f85149;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1000px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.1rem;
+    }
+
+    header span {
+      opacity: 0.7;
+    }
+
+    .terminal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .prompt {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .prompt span {
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 90px;
+      background: transparent;
+      border: none;
+      outline: none;
+      resize: vertical;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 0.95rem;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .hint {
+      font-size: 0.8rem;
+      opacity: 0.6;
+    }
+
+    .output {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-x: auto;
+      font-size: 0.9rem;
+      min-height: 80px;
+    }
+
+    .error {
+      color: var(--error);
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 0.85rem;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 6px 8px;
+      text-align: left;
+    }
+
+    th {
+      background: #1f2933;
+    }
+
+    /* Mobile tweaks */
+    @media (max-width: 600px) {
+      textarea {
+        min-height: 70px;
+      }
+
+      header {
+        font-size: 1rem;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      💻 <strong>SQL Web Terminal</strong>
+      <span>connected</span>
+    </header>
+
+    <div class="terminal">
+      <div class="prompt">
+        <span>sql&gt;</span>
+        <textarea id="query" placeholder="SELECT * FROM users;"></textarea>
+      </div>
+
+      <div class="actions">
+        <button onclick="runQuery()">Run</button>
+        <div class="hint">Ctrl + Enter to execute</div>
+      </div>
+    </div>
+
+    <div id="output" class="output"></div>
+  </div>
+
+  <script>
+    const textarea = document.getElementById("query");
+    const output = document.getElementById("output");
+
+    textarea.addEventListener("keydown", e => {
+      if (e.ctrlKey && e.key === "Enter") {
+        runQuery();
+      }
+    });
+
+    function runQuery() {
+      const query = textarea.value.trim();
+      if (!query) return;
+
+      output.textContent = "Running query...";
+
+      fetch("/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (!data.success) {
+            output.innerHTML = `<div class="error">${data.error}</div>`;
+            return;
+          }
+
+          if (Array.isArray(data.data)) {
+            renderTable(data.data);
+          } else {
+            output.textContent = data.data;
+          }
+        })
+        .catch(err => {
+          output.innerHTML = `<div class="error">${err}</div>`;
+        });
+    }
+
+    function renderTable(rows) {
+      if (rows.length === 0) {
+        output.textContent = "No rows returned.";
+        return;
+      }
+
+      const cols = Object.keys(rows[0]);
+      let html = "<table><thead><tr>";
+
+      cols.forEach(c => html += `<th>${c}</th>`);
+      html += "</tr></thead><tbody>";
+
+      rows.forEach(row => {
+        html += "<tr>";
+        cols.forEach(c => html += `<td>${row[c]}</td>`);
+        html += "</tr>";
+      });
+
+      html += "</tbody></table>";
+      output.innerHTML = html;
+    }
+  </script>
+</body>
+</html>
+
