@@ -955,6 +955,10 @@ tbody tr:hover {
     height: 32px;
     padding: 0 10px;
   }
+  
+  .tool-details {
+    padding-left: 0;
+  }
 }
 
 @media (max-width: 480px) {
@@ -982,4 +986,115 @@ tbody tr:hover {
     padding: 0 8px;
     min-width: 38px;
   }
+}
+/* Tool Calls Visualization */
+.tool-calls-message {
+  margin: 16px 0;
+  padding: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-accent);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-primary);
+  color: var(--accent-light);
+  font-weight: 600;
+}
+
+.tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-call {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  transition: all var(--transition-base);
+}
+
+.tool-call:hover {
+  border-color: var(--accent-primary);
+  transform: translateX(2px);
+}
+
+.tool-call.success {
+  border-left: 3px solid var(--success);
+}
+
+.tool-call.error {
+  border-left: 3px solid var(--error);
+}
+
+.tool-call-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.tool-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: var(--accent-primary);
+  color: white;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.tool-name {
+  flex: 1;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.tool-status {
+  color: var(--success);
+  font-size: 1.1rem;
+}
+
+.tool-call.error .tool-status {
+  color: var(--error);
+}
+
+.tool-details {
+  padding-left: 28px;
+}
+
+.tool-args {
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+}
+
+.tool-result {
+  color: var(--text-secondary);
+}
+
+.tool-result pre {
+  margin-top: 4px;
+  padding: 8px;
+  background: var(--bg-primary);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.tool-result strong {
+  color: var(--text-primary);
 }
