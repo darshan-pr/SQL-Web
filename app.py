@@ -222,37 +222,41 @@ else:
             ]
         )
         
-        # Initialize the model with tools
+        # Initialize the model with tools - using standard model for better compatibility
         model = genai.GenerativeModel(
-            'gemini-2.5-pro',  # Using thinking model for better reasoning
+            'gemini-2.5-pro',  # Using stable model
             tools=[sql_tool],
             generation_config={
-                "temperature": 1.0,
+                "temperature": 0.7,
                 "top_p": 0.95,
                 "top_k": 40,
                 "max_output_tokens": 8192,
             },
             system_instruction="""You are an expert SQL database assistant with access to database tools. You help users understand and interact with their database.
 
-IMPORTANT GUIDELINES:
-1. Always show your thinking process when working on queries
-2. When users ask to see records, use preview_table_data with limit=5 by default
-3. Explain what you're doing before calling tools
-4. If data contains dates or decimals, they will be properly formatted
-5. Be conversational and helpful - explain database concepts clearly
-6. When asked to create queries for INSERT/UPDATE/DELETE, provide the SQL but explain you can only execute SELECT queries
-7. If you encounter errors, explain them clearly and suggest solutions
+CRITICAL RULES:
+1. ALWAYS use your tools to answer questions - don't guess!
+2. When users ask about tables, use list_tables() immediately
+3. When users ask to see records, use preview_table_data() with limit=5
+4. When users ask about table structure, use describe_table()
+5. Explain what you're doing before calling tools
+6. Be conversational and helpful
+
+IMPORTANT:
+- Default to 5 rows when previewing data
+- All dates and decimals will be properly formatted
+- If you can't modify the database (INSERT/UPDATE/DELETE/CREATE), offer to write the SQL for them
+- Always check what actually exists before answering
 
 RESPONSE FORMAT:
-- Start with a brief explanation of what you're going to do
-- Show your reasoning as you work through the problem
+- Briefly explain what you'll do
 - Call the appropriate tools
 - Provide clear, actionable results
 - Offer to help with follow-up questions"""
         )
         
         print("✓ Gemini AI configured successfully!")
-        print(f"✓ Using model: gemini-2.0-flash-thinking-exp-01-21")
+        print(f"✓ Using model: gemini-1.5-pro")
         
     except Exception as e:
         print(f"❌ Failed to configure Gemini AI: {e}")
@@ -279,7 +283,8 @@ def tool_list_tables():
         result = {
             "success": True,
             "tables": tables,
-            "count": len(tables)
+            "count": len(tables),
+            "message": f"Found {len(tables)} tables in the database"
         }
         return safe_json_serialize(result)
     except Exception as e:
@@ -308,7 +313,8 @@ def tool_describe_table(table_name: str):
             "success": True,
             "table": table_name,
             "columns": columns,
-            "column_count": len(columns)
+            "column_count": len(columns),
+            "message": f"Table '{table_name}' has {len(columns)} columns"
         }
         return safe_json_serialize(result)
     except Exception as e:
@@ -344,7 +350,8 @@ def tool_get_foreign_keys(table_name: str):
             "success": True,
             "table": table_name,
             "foreign_keys": foreign_keys,
-            "count": len(foreign_keys)
+            "count": len(foreign_keys),
+            "message": f"Found {len(foreign_keys)} foreign keys in '{table_name}'"
         }
         return safe_json_serialize(result)
     except Exception as e:
@@ -356,7 +363,7 @@ def tool_preview_table_data(table_name: str, limit: int = 5):
         # Default to 5, clamp between 1 and 50
         if limit is None:
             limit = 5
-        limit = min(max(1, limit), 50)
+        limit = min(max(1, int(limit)), 50)
         
         cur = mysql.connection.cursor()
         cur.execute(f"SELECT * FROM `{table_name}` LIMIT {limit}")
@@ -380,7 +387,8 @@ def tool_preview_table_data(table_name: str, limit: int = 5):
             "data": data,
             "row_count": len(data),
             "limit": limit,
-            "columns": columns
+            "columns": columns,
+            "message": f"Retrieved {len(data)} rows from '{table_name}'"
         }
         return safe_json_serialize(result)
     except Exception as e:
@@ -423,7 +431,8 @@ def tool_execute_select_query(query: str, purpose: str):
             "query": query,
             "data": data,
             "row_count": len(data),
-            "columns": columns
+            "columns": columns,
+            "message": f"Query executed successfully. Retrieved {len(data)} rows."
         }
         return safe_json_serialize(result)
     except Exception as e:
@@ -459,7 +468,8 @@ def tool_get_table_relationships():
         result = {
             "success": True,
             "relationships": relationships,
-            "count": len(relationships)
+            "count": len(relationships),
+            "message": f"Found {len(relationships)} foreign key relationships"
         }
         return safe_json_serialize(result)
     except Exception as e:
@@ -483,7 +493,8 @@ def tool_count_records(table_name: str, where_clause: str = ""):
             "success": True,
             "table": table_name,
             "count": int(count),
-            "where": where_clause if where_clause else None
+            "where": where_clause if where_clause else None,
+            "message": f"Table '{table_name}' has {count} records"
         }
         return safe_json_serialize(result)
     except Exception as e:
@@ -515,7 +526,8 @@ def tool_search_records(table_name: str, search_column: str, search_value: str):
             "search_column": search_column,
             "search_value": search_value,
             "data": data,
-            "found": len(data)
+            "found": len(data),
+            "message": f"Found {len(data)} matching records"
         }
         return safe_json_serialize(result)
     except Exception as e:
@@ -533,10 +545,17 @@ def index():
 def terminal():
     return render_template("terminal.html")
 
+def find_function_call_in_parts(parts):
+    """Helper to find function call in response parts"""
+    for part in parts:
+        if hasattr(part, 'function_call') and part.function_call:
+            return part.function_call
+    return None
+
 @app.route("/ai-chat", methods=["POST"])
 def ai_chat():
     """
-    AI Chat endpoint with function calling support and thinking display
+    AI Chat endpoint with robust function calling support
     """
     if model is None:
         return jsonify({
@@ -587,89 +606,107 @@ def ai_chat():
         # Track tool calls and thinking for transparency
         tool_calls = []
         thinking_steps = []
-        max_iterations = 10
+        max_iterations = 15
         iterations = 0
         
-        # Extract thinking if present
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, 'thought') and part.thought:
+        # Handle function calls robustly
+        while iterations < max_iterations:
+            # Check if response has function call
+            function_call = None
+            
+            try:
+                if response.candidates and len(response.candidates) > 0:
+                    candidate = response.candidates[0]
+                    if candidate.content and candidate.content.parts:
+                        function_call = find_function_call_in_parts(candidate.content.parts)
+                
+                if not function_call:
+                    # No more function calls, break the loop
+                    break
+                
+                iterations += 1
+                function_name = function_call.name
+                function_args = dict(function_call.args) if function_call.args else {}
+                
+                print(f"\n🔧 Tool Call #{iterations}: {function_name}")
+                print(f"📋 Args: {json.dumps(function_args, indent=2)}")
+                
+                # Add thinking step for tool call
                 thinking_steps.append({
                     "step": len(thinking_steps) + 1,
-                    "thought": part.thought
+                    "action": f"Using tool: {function_name}",
+                    "args": function_args
                 })
-        
-        # Handle function calls
-        while response.candidates[0].content.parts[0].function_call and iterations < max_iterations:
-            iterations += 1
-            function_call = response.candidates[0].content.parts[0].function_call
-            function_name = function_call.name
-            function_args = dict(function_call.args)
-            
-            print(f"\n🔧 Tool Call #{iterations}: {function_name}")
-            print(f"📋 Args: {json.dumps(function_args, indent=2)}")
-            
-            # Add thinking step for tool call
-            thinking_steps.append({
-                "step": len(thinking_steps) + 1,
-                "action": f"Calling tool: {function_name}",
-                "args": function_args
-            })
-            
-            # Execute the function
-            result = None
-            if function_name == "list_tables":
-                result = tool_list_tables()
-            elif function_name == "describe_table":
-                result = tool_describe_table(**function_args)
-            elif function_name == "get_foreign_keys":
-                result = tool_get_foreign_keys(**function_args)
-            elif function_name == "preview_table_data":
-                result = tool_preview_table_data(**function_args)
-            elif function_name == "execute_select_query":
-                result = tool_execute_select_query(**function_args)
-            elif function_name == "get_table_relationships":
-                result = tool_get_table_relationships()
-            elif function_name == "count_records":
-                result = tool_count_records(**function_args)
-            elif function_name == "search_records":
-                result = tool_search_records(**function_args)
-            else:
-                result = {"success": False, "error": f"Unknown function: {function_name}"}
-            
-            print(f"✓ Result: {str(result)[:200]}...")
-            
-            # Track tool call with serialized result
-            tool_calls.append({
-                "function": function_name,
-                "args": function_args,
-                "result": safe_json_serialize(result)
-            })
-            
-            # Send function response back to model
-            response = chat.send_message(
-                genai.protos.Content(
-                    parts=[genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
-                            name=function_name,
-                            response=safe_json_serialize(result)
+                
+                # Execute the function
+                result = None
+                try:
+                    if function_name == "list_tables":
+                        result = tool_list_tables()
+                    elif function_name == "describe_table":
+                        result = tool_describe_table(**function_args)
+                    elif function_name == "get_foreign_keys":
+                        result = tool_get_foreign_keys(**function_args)
+                    elif function_name == "preview_table_data":
+                        result = tool_preview_table_data(**function_args)
+                    elif function_name == "execute_select_query":
+                        result = tool_execute_select_query(**function_args)
+                    elif function_name == "get_table_relationships":
+                        result = tool_get_table_relationships()
+                    elif function_name == "count_records":
+                        result = tool_count_records(**function_args)
+                    elif function_name == "search_records":
+                        result = tool_search_records(**function_args)
+                    else:
+                        result = {"success": False, "error": f"Unknown function: {function_name}"}
+                except Exception as func_error:
+                    print(f"❌ Error executing function: {func_error}")
+                    result = {"success": False, "error": f"Function execution error: {str(func_error)}"}
+                
+                print(f"✓ Result: {str(result)[:200]}...")
+                
+                # Track tool call with serialized result
+                tool_calls.append({
+                    "function": function_name,
+                    "args": function_args,
+                    "result": safe_json_serialize(result)
+                })
+                
+                # Send function response back to model
+                try:
+                    response = chat.send_message(
+                        genai.protos.Content(
+                            parts=[genai.protos.Part(
+                                function_response=genai.protos.FunctionResponse(
+                                    name=function_name,
+                                    response=safe_json_serialize(result)
+                                )
+                            )]
                         )
-                    )]
-                )
-            )
-            
-            # Extract thinking from response
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'thought') and part.thought:
-                    thinking_steps.append({
-                        "step": len(thinking_steps) + 1,
-                        "thought": part.thought
-                    })
+                    )
+                except Exception as response_error:
+                    print(f"❌ Error sending function response: {response_error}")
+                    break
+                    
+            except Exception as e:
+                print(f"❌ Error in function call loop: {e}")
+                traceback.print_exc()
+                break
         
         print(f"\n✓ Chat completed after {iterations} tool call(s)")
         print(f"{'='*60}\n")
         
         # Get final response text
-        response_text = response.text
+        response_text = ""
+        try:
+            response_text = response.text
+        except Exception as e:
+            print(f"⚠️  Could not extract response text: {e}")
+            # Try to extract from parts
+            if response.candidates and len(response.candidates) > 0:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        response_text += part.text
         
         # Extract SQL if present
         sql_query = extract_sql_from_response(response_text)
@@ -771,13 +808,13 @@ def run_query():
 # -------------------------------------------------
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("🚀 SQL Terminal Pro - AI Edition")
+    print("🚀 SQL Terminal Pro - AI Edition (ROBUST)")
     print("="*60)
     print("✓ Flask server starting...")
     if model:
         print("✓ AI Assistant enabled with function calling")
-        print("✓ Gemini 2.0 Flash Thinking Experimental mode active")
-        print("✓ Shows thinking process and reasoning steps")
+        print("✓ Using Gemini 1.5 Pro for maximum reliability")
+        print("✓ Enhanced error handling and JSON serialization")
     else:
         print("⚠️  AI Assistant disabled - check API key")
     print("="*60 + "\n")
