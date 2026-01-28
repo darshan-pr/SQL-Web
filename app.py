@@ -17,7 +17,6 @@ app = Flask(__name__)
 secret_key = os.getenv("SECRET_KEY")
 if secret_key:
     app.secret_key = secret_key
-# If not set → Flask runs without sessions (SAFE for your current use)
 
 # -------------------------------------------------
 # MySQL Configuration
@@ -30,10 +29,14 @@ app.config["MYSQL_DB"] = os.getenv("MYSQL_DB")
 mysql = MySQL(app)
 
 # -------------------------------------------------
-# Gemini Configuration
+# Gemini Configuration - Using Latest Model
 # -------------------------------------------------
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel("gemini-1.5-flash")
+try:
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    model = genai.GenerativeModel("gemini-2.5-flash")
+except Exception as e:
+    print(f"Gemini configuration error: {e}")
+    model = None
 
 SYSTEM_PROMPT = """
 You are an expert MySQL database assistant.
@@ -61,16 +64,23 @@ def terminal():
 
 @app.route("/ai-query", methods=["POST"])
 def ai_query():
-    user_message = request.json.get("message", "").strip()
+    try:
+        if not model:
+            return jsonify({"success": False, "error": "Gemini AI is not configured. Please check your API key."}), 500
+        
+        user_message = request.json.get("message", "").strip()
 
-    if not user_message:
-        return jsonify({"sql": ""})
+        if not user_message:
+            return jsonify({"success": False, "error": "Empty message"}), 400
 
-    prompt = f"{SYSTEM_PROMPT}\nUser: {user_message}"
-    response = model.generate_content(prompt)
+        prompt = f"{SYSTEM_PROMPT}\nUser: {user_message}"
+        response = model.generate_content(prompt)
 
-    sql = response.text.replace("```sql", "").replace("```", "").strip()
-    return jsonify({"sql": sql})
+        sql = response.text.replace("```sql", "").replace("```", "").strip()
+        return jsonify({"success": True, "sql": sql})
+    
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/run", methods=["POST"])
 def run_query():
