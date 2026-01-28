@@ -8,6 +8,8 @@ import re
 import json
 from typing import List, Dict, Any
 import traceback
+from decimal import Decimal
+from datetime import date, datetime
 
 # -------------------------------------------------
 # Load environment variables
@@ -32,6 +34,37 @@ app.config["MYSQL_PASSWORD"] = os.getenv("MYSQL_PASSWORD")
 app.config["MYSQL_DB"] = os.getenv("MYSQL_DB")
 
 mysql = MySQL(app)
+
+# -------------------------------------------------
+# Custom JSON Encoder for MySQL Data Types
+# -------------------------------------------------
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles MySQL data types"""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        elif isinstance(obj, (date, datetime)):
+            return obj.isoformat()
+        elif isinstance(obj, bytes):
+            return obj.decode('utf-8', errors='replace')
+        return super().default(obj)
+
+app.json_encoder = CustomJSONEncoder
+
+def safe_json_serialize(data):
+    """Safely serialize data to JSON-compatible format"""
+    if isinstance(data, dict):
+        return {k: safe_json_serialize(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [safe_json_serialize(item) for item in data]
+    elif isinstance(data, Decimal):
+        return float(data)
+    elif isinstance(data, (date, datetime)):
+        return data.isoformat()
+    elif isinstance(data, bytes):
+        return data.decode('utf-8', errors='replace')
+    else:
+        return data
 
 # -------------------------------------------------
 # Gemini Configuration with Function Calling
@@ -88,7 +121,7 @@ else:
         
         preview_table_data_func = genai.protos.FunctionDeclaration(
             name='preview_table_data',
-            description='Get a preview of actual data from a table (up to specified limit).',
+            description='Get a preview of actual data from a table. Default shows 5 rows, max 50 rows. Use this to see sample records.',
             parameters=genai.protos.Schema(
                 type=genai.protos.Type.OBJECT,
                 properties={
@@ -98,7 +131,7 @@ else:
                     ),
                     'limit': genai.protos.Schema(
                         type=genai.protos.Type.INTEGER,
-                        description='Number of rows to return (default 10, max 50)'
+                        description='Number of rows to return (default 5, max 50)'
                     )
                 },
                 required=['table_name']
@@ -107,7 +140,7 @@ else:
         
         execute_select_query_func = genai.protos.FunctionDeclaration(
             name='execute_select_query',
-            description='Execute a SELECT query to retrieve specific data. ONLY SELECT queries allowed.',
+            description='Execute a SELECT query to retrieve specific data. ONLY SELECT queries allowed. Automatically limited to 100 rows for safety.',
             parameters=genai.protos.Schema(
                 type=genai.protos.Type.OBJECT,
                 properties={
@@ -126,7 +159,7 @@ else:
         
         get_table_relationships_func = genai.protos.FunctionDeclaration(
             name='get_table_relationships',
-            description='Get all foreign key relationships in the entire database.',
+            description='Get all foreign key relationships in the entire database. Shows how tables are connected.',
             parameters=genai.protos.Schema(
                 type=genai.protos.Type.OBJECT,
                 properties={}
@@ -154,7 +187,7 @@ else:
         
         search_records_func = genai.protos.FunctionDeclaration(
             name='search_records',
-            description='Search for specific records in a table by name or other text fields.',
+            description='Search for specific records in a table by name or other text fields. Returns up to 20 matching records.',
             parameters=genai.protos.Schema(
                 type=genai.protos.Type.OBJECT,
                 properties={
@@ -191,18 +224,35 @@ else:
         
         # Initialize the model with tools
         model = genai.GenerativeModel(
-            'gemini-2.5-pro',  # Using the latest Gemini model
+            'gemini-2.5-pro',  # Using thinking model for better reasoning
             tools=[sql_tool],
             generation_config={
                 "temperature": 1.0,
                 "top_p": 0.95,
                 "top_k": 40,
                 "max_output_tokens": 8192,
-            }
+            },
+            system_instruction="""You are an expert SQL database assistant with access to database tools. You help users understand and interact with their database.
+
+IMPORTANT GUIDELINES:
+1. Always show your thinking process when working on queries
+2. When users ask to see records, use preview_table_data with limit=5 by default
+3. Explain what you're doing before calling tools
+4. If data contains dates or decimals, they will be properly formatted
+5. Be conversational and helpful - explain database concepts clearly
+6. When asked to create queries for INSERT/UPDATE/DELETE, provide the SQL but explain you can only execute SELECT queries
+7. If you encounter errors, explain them clearly and suggest solutions
+
+RESPONSE FORMAT:
+- Start with a brief explanation of what you're going to do
+- Show your reasoning as you work through the problem
+- Call the appropriate tools
+- Provide clear, actionable results
+- Offer to help with follow-up questions"""
         )
         
         print("✓ Gemini AI configured successfully!")
-        print(f"✓ Using model: gemini-2.5-pro")
+        print(f"✓ Using model: gemini-2.0-flash-thinking-exp-01-21")
         
     except Exception as e:
         print(f"❌ Failed to configure Gemini AI: {e}")
@@ -215,7 +265,7 @@ else:
 conversation_sessions = {}
 
 # -------------------------------------------------
-# Database Tool Functions
+# Database Tool Functions with JSON Serialization
 # -------------------------------------------------
 
 def tool_list_tables():
@@ -226,11 +276,12 @@ def tool_list_tables():
         tables = [row[0] for row in cur.fetchall()]
         cur.close()
         
-        return {
+        result = {
             "success": True,
             "tables": tables,
             "count": len(tables)
         }
+        return safe_json_serialize(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -247,18 +298,19 @@ def tool_describe_table(table_name: str):
                 "type": row[1],
                 "null": row[2],
                 "key": row[3],
-                "default": row[4],
+                "default": str(row[4]) if row[4] is not None else None,
                 "extra": row[5]
             })
         
         cur.close()
         
-        return {
+        result = {
             "success": True,
             "table": table_name,
             "columns": columns,
             "column_count": len(columns)
         }
+        return safe_json_serialize(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -288,64 +340,92 @@ def tool_get_foreign_keys(table_name: str):
         
         cur.close()
         
-        return {
+        result = {
             "success": True,
             "table": table_name,
             "foreign_keys": foreign_keys,
             "count": len(foreign_keys)
         }
+        return safe_json_serialize(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-def tool_preview_table_data(table_name: str, limit: int = 10):
-    """Preview table data"""
+def tool_preview_table_data(table_name: str, limit: int = 5):
+    """Preview table data - default 5 rows"""
     try:
-        limit = min(max(1, limit), 50)  # Clamp between 1 and 50
+        # Default to 5, clamp between 1 and 50
+        if limit is None:
+            limit = 5
+        limit = min(max(1, limit), 50)
+        
         cur = mysql.connection.cursor()
         cur.execute(f"SELECT * FROM `{table_name}` LIMIT {limit}")
         
         columns = [d[0] for d in cur.description]
         rows = cur.fetchall()
-        data = [dict(zip(columns, row)) for row in rows]
+        
+        # Convert rows to dictionaries with safe serialization
+        data = []
+        for row in rows:
+            row_dict = {}
+            for col, val in zip(columns, row):
+                row_dict[col] = safe_json_serialize(val)
+            data.append(row_dict)
         
         cur.close()
         
-        return {
+        result = {
             "success": True,
             "table": table_name,
             "data": data,
             "row_count": len(data),
+            "limit": limit,
             "columns": columns
         }
+        return safe_json_serialize(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 def tool_execute_select_query(query: str, purpose: str):
-    """Execute a SELECT query"""
+    """Execute a SELECT query with automatic LIMIT"""
     try:
         # Safety check
-        if not query.strip().upper().startswith("SELECT"):
+        query_upper = query.strip().upper()
+        if not query_upper.startswith("SELECT"):
             return {
                 "success": False,
                 "error": "Only SELECT queries are allowed for safety"
             }
+        
+        # Add LIMIT if not present (for safety)
+        if "LIMIT" not in query_upper:
+            query = query.rstrip(';') + " LIMIT 100"
         
         cur = mysql.connection.cursor()
         cur.execute(query)
         
         columns = [d[0] for d in cur.description] if cur.description else []
         rows = cur.fetchall()
-        data = [dict(zip(columns, row)) for row in rows]
+        
+        # Convert rows to dictionaries with safe serialization
+        data = []
+        for row in rows:
+            row_dict = {}
+            for col, val in zip(columns, row):
+                row_dict[col] = safe_json_serialize(val)
+            data.append(row_dict)
         
         cur.close()
         
-        return {
+        result = {
             "success": True,
             "purpose": purpose,
+            "query": query,
             "data": data,
             "row_count": len(data),
             "columns": columns
         }
+        return safe_json_serialize(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -376,11 +456,12 @@ def tool_get_table_relationships():
         
         cur.close()
         
-        return {
+        result = {
             "success": True,
             "relationships": relationships,
             "count": len(relationships)
         }
+        return safe_json_serialize(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -398,12 +479,13 @@ def tool_count_records(table_name: str, where_clause: str = ""):
         count = cur.fetchone()[0]
         cur.close()
         
-        return {
+        result = {
             "success": True,
             "table": table_name,
-            "count": count,
+            "count": int(count),
             "where": where_clause if where_clause else None
         }
+        return safe_json_serialize(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -416,11 +498,18 @@ def tool_search_records(table_name: str, search_column: str, search_value: str):
         
         columns = [d[0] for d in cur.description]
         rows = cur.fetchall()
-        data = [dict(zip(columns, row)) for row in rows]
+        
+        # Convert rows to dictionaries with safe serialization
+        data = []
+        for row in rows:
+            row_dict = {}
+            for col, val in zip(columns, row):
+                row_dict[col] = safe_json_serialize(val)
+            data.append(row_dict)
         
         cur.close()
         
-        return {
+        result = {
             "success": True,
             "table": table_name,
             "search_column": search_column,
@@ -428,6 +517,7 @@ def tool_search_records(table_name: str, search_column: str, search_value: str):
             "data": data,
             "found": len(data)
         }
+        return safe_json_serialize(result)
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -446,7 +536,7 @@ def terminal():
 @app.route("/ai-chat", methods=["POST"])
 def ai_chat():
     """
-    AI Chat endpoint with function calling support
+    AI Chat endpoint with function calling support and thinking display
     """
     if model is None:
         return jsonify({
@@ -494,10 +584,19 @@ def ai_chat():
         # Send message and handle function calling
         response = chat.send_message(current_message)
         
-        # Track tool calls for transparency
+        # Track tool calls and thinking for transparency
         tool_calls = []
+        thinking_steps = []
         max_iterations = 10
         iterations = 0
+        
+        # Extract thinking if present
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, 'thought') and part.thought:
+                thinking_steps.append({
+                    "step": len(thinking_steps) + 1,
+                    "thought": part.thought
+                })
         
         # Handle function calls
         while response.candidates[0].content.parts[0].function_call and iterations < max_iterations:
@@ -508,6 +607,13 @@ def ai_chat():
             
             print(f"\n🔧 Tool Call #{iterations}: {function_name}")
             print(f"📋 Args: {json.dumps(function_args, indent=2)}")
+            
+            # Add thinking step for tool call
+            thinking_steps.append({
+                "step": len(thinking_steps) + 1,
+                "action": f"Calling tool: {function_name}",
+                "args": function_args
+            })
             
             # Execute the function
             result = None
@@ -530,13 +636,13 @@ def ai_chat():
             else:
                 result = {"success": False, "error": f"Unknown function: {function_name}"}
             
-            print(f"✓ Result: {json.dumps(result, indent=2)[:200]}...")
+            print(f"✓ Result: {str(result)[:200]}...")
             
-            # Track tool call
+            # Track tool call with serialized result
             tool_calls.append({
                 "function": function_name,
                 "args": function_args,
-                "result": result
+                "result": safe_json_serialize(result)
             })
             
             # Send function response back to model
@@ -545,11 +651,19 @@ def ai_chat():
                     parts=[genai.protos.Part(
                         function_response=genai.protos.FunctionResponse(
                             name=function_name,
-                            response=result
+                            response=safe_json_serialize(result)
                         )
                     )]
                 )
             )
+            
+            # Extract thinking from response
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'thought') and part.thought:
+                    thinking_steps.append({
+                        "step": len(thinking_steps) + 1,
+                        "thought": part.thought
+                    })
         
         print(f"\n✓ Chat completed after {iterations} tool call(s)")
         print(f"{'='*60}\n")
@@ -580,6 +694,7 @@ def ai_chat():
             "response": response_text,
             "sql": sql_query,
             "tool_calls": tool_calls,
+            "thinking": thinking_steps,
             "iterations": iterations,
             "history": conversation_sessions[session_id]
         })
@@ -612,7 +727,7 @@ def extract_sql_from_response(text):
 
 @app.route("/run", methods=["POST"])
 def run_query():
-    """User-initiated query execution"""
+    """User-initiated query execution with JSON serialization"""
     query = request.json.get("query", "").strip()
 
     if not query:
@@ -633,7 +748,14 @@ def run_query():
         if query.lower().startswith("select") or query.lower().startswith("show") or query.lower().startswith("describe"):
             columns = [d[0] for d in cur.description]
             rows = cur.fetchall()
-            data = [dict(zip(columns, row)) for row in rows]
+            
+            # Convert rows with safe serialization
+            data = []
+            for row in rows:
+                row_dict = {}
+                for col, val in zip(columns, row):
+                    row_dict[col] = safe_json_serialize(val)
+                data.append(row_dict)
         else:
             mysql.connection.commit()
             data = f"Query executed successfully. Rows affected: {cur.rowcount}"
@@ -654,7 +776,8 @@ if __name__ == "__main__":
     print("✓ Flask server starting...")
     if model:
         print("✓ AI Assistant enabled with function calling")
-        print("✓ Gemini 2.0 Flash Thinking mode active")
+        print("✓ Gemini 2.0 Flash Thinking Experimental mode active")
+        print("✓ Shows thinking process and reasoning steps")
     else:
         print("⚠️  AI Assistant disabled - check API key")
     print("="*60 + "\n")

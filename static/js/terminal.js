@@ -119,6 +119,11 @@ function checkSyntax() {
     // Update conversation history
     conversationHistory = data.history || conversationHistory;
     
+    // Show thinking process if available
+    if (data.thinking && data.thinking.length > 0) {
+      addThinkingMessage(data.thinking);
+    }
+    
     // Show tool calls if any
     if (data.tool_calls && data.tool_calls.length > 0) {
       addToolCallsMessage(data.tool_calls);
@@ -183,6 +188,11 @@ function sendChatMessage() {
     // Update conversation history
     conversationHistory = data.history || conversationHistory;
     
+    // Show thinking process if available (like real Gemini)
+    if (data.thinking && data.thinking.length > 0) {
+      addThinkingMessage(data.thinking);
+    }
+    
     // Show tool calls if any (agentic behavior visualization)
     if (data.tool_calls && data.tool_calls.length > 0) {
       addToolCallsMessage(data.tool_calls);
@@ -203,6 +213,49 @@ function sendQuickMessage(message) {
   sendChatMessage();
 }
 
+// Add Thinking Process Display (like real Gemini)
+function addThinkingMessage(thinkingSteps) {
+  const thinkDiv = document.createElement('div');
+  thinkDiv.className = 'thinking-message';
+  
+  let thinkHtml = `
+    <div class="thinking-header">
+      <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M12 1v6m0 6v6m5.6-11.6l-4.2 4.2m-2.8 2.8l-4.2 4.2M23 12h-6m-6 0H5m16.6-5.6l-4.2 4.2m-2.8 2.8l-4.2 4.2"/>
+      </svg>
+      <span>💭 AI Thinking Process</span>
+    </div>
+    <div class="thinking-steps">
+  `;
+  
+  thinkingSteps.forEach((step, index) => {
+    if (step.thought) {
+      thinkHtml += `
+        <div class="thinking-step">
+          <span class="thinking-number">${index + 1}</span>
+          <div class="thinking-content">${escapeHtml(step.thought)}</div>
+        </div>
+      `;
+    } else if (step.action) {
+      thinkHtml += `
+        <div class="thinking-step action">
+          <span class="thinking-number">→</span>
+          <div class="thinking-content">
+            <strong>${escapeHtml(step.action)}</strong>
+            ${step.args ? `<div class="thinking-args">${escapeHtml(JSON.stringify(step.args))}</div>` : ''}
+          </div>
+        </div>
+      `;
+    }
+  });
+  
+  thinkHtml += '</div>';
+  thinkDiv.innerHTML = thinkHtml;
+  chatHistory.appendChild(thinkDiv);
+  scrollChatToBottom();
+}
+
 // Add Tool Calls Visualization
 function addToolCallsMessage(toolCalls) {
   const toolDiv = document.createElement('div');
@@ -213,14 +266,12 @@ function addToolCallsMessage(toolCalls) {
       <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
       </svg>
-      <span>AI Agent Actions (${toolCalls.length})</span>
+      <span>🔧 AI Agent Actions (${toolCalls.length})</span>
     </div>
     <div class="tool-list">
   `;
   
   toolCalls.forEach((call, index) => {
-    const args = JSON.stringify(call.args, null, 2);
-    const result = JSON.stringify(call.result, null, 2);
     const isSuccess = call.result.success;
     
     toolHtml += `
@@ -273,7 +324,8 @@ function formatToolResult(result) {
     ).join('\n');
   }
   if (result.data) {
-    return `Retrieved ${result.row_count} rows from ${result.table || 'query'}`;
+    const limit = result.limit || result.row_count;
+    return `Retrieved ${result.row_count} rows${limit ? ` (showing ${limit})` : ''} from ${result.table || 'query'}`;
   }
   if (result.count !== undefined) {
     return `Count: ${result.count} records`;
@@ -389,12 +441,8 @@ function addLoadingMessage() {
   loadingDiv.id = 'loading-' + Date.now();
   
   loadingDiv.innerHTML = `
-    <span>AI thinking and inspecting database</span>
-    <div class="loading-dots">
-      <div class="loading-dot"></div>
-      <div class="loading-dot"></div>
-      <div class="loading-dot"></div>
-    </div>
+    <div class="loading-spinner"></div>
+    <span>AI thinking and analyzing database...</span>
   `;
   
   chatHistory.appendChild(loadingDiv);
@@ -428,28 +476,30 @@ function clearChat() {
           <circle cx="16" cy="11" r="1"/>
         </svg>
       </div>
-      <h3>Welcome! I'm your Agentic SQL Assistant</h3>
-      <p>I can inspect your database schema, check existing data, and generate accurate queries based on what actually exists in your database. Watch as I use tools to understand your database structure!</p>
+      <h3>Welcome! I'm your AI SQL Assistant</h3>
+      <p>I can help you write queries, inspect database structure, and analyze data. I'll show you my thinking process and the tools I use!</p>
       <div class="quick-actions">
-        <button onclick="sendQuickMessage('Create a users table with id, name, email, and created_at fields')" class="quick-btn">
-          <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-          Create Table
-        </button>
-        <button onclick="sendQuickMessage('Show me what tables exist and their relationships')" class="quick-btn">
+        <button onclick="sendQuickMessage('Show me all tables in my database')" class="quick-btn">
           <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
           </svg>
-          Inspect Schema
+          List Tables
         </button>
-        <button onclick="sendQuickMessage('Create a JOIN query between related tables')" class="quick-btn">
+        <button onclick="sendQuickMessage('Show me sample data from the Employees table')" class="quick-btn">
+          <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="3" y1="9" x2="21" y2="9"/>
+            <line x1="9" y1="21" x2="9" y2="9"/>
+          </svg>
+          Preview Data
+        </button>
+        <button onclick="sendQuickMessage('Help me create a JOIN query')" class="quick-btn">
           <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"/>
             <circle cx="6" cy="12" r="3"/>
             <circle cx="18" cy="12" r="3"/>
           </svg>
-          Smart JOIN
+          Create JOIN
         </button>
       </div>
     </div>
@@ -493,7 +543,7 @@ function renderTable(rows) {
 function showLoading(message) {
   output.innerHTML = `
     <div style="display: flex; align-items: center; gap: 12px; padding: 20px;">
-      <div class="loading"></div>
+      <div class="loading-spinner"></div>
       <span>${escapeHtml(message)}</span>
     </div>
   `;
