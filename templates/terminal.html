@@ -51,7 +51,7 @@
                 </svg>
                 AI Check & Fix
               </button>
-              <button onclick="runQuery()" class="btn-primary">
+              <button onclick="runQuery()" class="btn-primary" title="Execute query (Ctrl/Cmd + Enter to run selection)">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polygon points="5 3 19 12 5 21 5 3"></polygon>
                 </svg>
@@ -61,6 +61,7 @@
           </div>
 
           <textarea id="query" placeholder="-- Write SQL query or ask AI to generate one
+-- Tip: Select text and press Ctrl/Cmd+Enter to execute selection only
 SELECT * FROM users WHERE status = 'active' LIMIT 10;"></textarea>
         </div>
 
@@ -116,9 +117,9 @@ SELECT * FROM users WHERE status = 'active' LIMIT 10;"></textarea>
               <div class="welcome-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                  <circle cx="12" cy="11" r="1"/>
-                  <circle cx="8" cy="11" r="1"/>
-                  <circle cx="16" cy="11" r="1"/>
+                  <circle cx="12" cy="11" r="1" fill="currentColor"/>
+                  <circle cx="8" cy="11" r="1" fill="currentColor"/>
+                  <circle cx="16" cy="11" r="1" fill="currentColor"/>
                 </svg>
               </div>
               <h3>Welcome! I'm your SQL Assistant</h3>
@@ -126,21 +127,24 @@ SELECT * FROM users WHERE status = 'active' LIMIT 10;"></textarea>
               <div class="quick-actions">
                 <button onclick="sendQuickMessage('Create a users table with id, name, email, and created_at fields')" class="quick-btn">
                   <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M12 5v14M5 12h14"/>
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
                   </svg>
                   Create Table
                 </button>
                 <button onclick="sendQuickMessage('Show me all tables in the database')" class="quick-btn">
                   <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>
+                    <rect x="3" y="3" width="7" height="7"/>
+                    <rect x="14" y="3" width="7" height="7"/>
+                    <rect x="14" y="14" width="7" height="7"/>
+                    <rect x="3" y="14" width="7" height="7"/>
                   </svg>
                   List Tables
                 </button>
                 <button onclick="sendQuickMessage('Help me write a JOIN query between users and orders tables')" class="quick-btn">
                   <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="3"/>
-                    <circle cx="6" cy="12" r="3"/>
-                    <circle cx="18" cy="12" r="3"/>
+                    <path d="M12 1v6m0 6v6M1 12h6m6 0h6"/>
                   </svg>
                   JOIN Query
                 </button>
@@ -149,7 +153,7 @@ SELECT * FROM users WHERE status = 'active' LIMIT 10;"></textarea>
           </div>
 
           <div class="chat-input-container">
-            <textarea id="chatInput" placeholder="Ask me anything about SQL, database design, or query optimization..." rows="1"></textarea>
+            <textarea id="chatInput" placeholder="Ask me anything about SQL or query optimization..." rows="1"></textarea>
             <button onclick="sendChatMessage()" class="btn-send">
               <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <line x1="22" y1="2" x2="11" y2="13"/>

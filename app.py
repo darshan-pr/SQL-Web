@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify
-from flask_mysqldb import MySQL
+
 
 import google.generativeai as genai
 import re
@@ -33,7 +33,7 @@ app.config["MYSQL_USER"] = os.getenv("MYSQL_USER")
 app.config["MYSQL_PASSWORD"] = os.getenv("MYSQL_PASSWORD")
 app.config["MYSQL_DB"] = os.getenv("MYSQL_DB")
 
-mysql = MySQL(app)
+
 
 # -------------------------------------------------
 # Custom JSON Encoder for MySQL Data Types
@@ -818,4 +818,4 @@ if __name__ == "__main__":
     else:
         print("⚠️  AI Assistant disabled - check API key")
     print("="*60 + "\n")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5001, debug=True)
